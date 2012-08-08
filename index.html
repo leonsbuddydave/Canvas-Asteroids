@@ -1,0 +1,430 @@
+<html>
+	<head>
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.2/jquery.min.js"></script>
+		<script type="text/javascript">
+			// CONSTANTS
+			var BULLETLOOP = false;
+			
+			var MOVE_NONE = 0;
+			var MOVE_LEFT = 1;
+			var MOVE_RIGHT = 2;
+				
+			var c, width, height;
+			
+			// Game variables
+			var Score = 0;
+			var ptsPerAsteroid = 10;
+
+			// Player variables
+			var playerRot = 0;
+			var rotSpeed = .3;
+			var pHeight = 30;
+			var pWidth = 15;
+			
+			var Speed = 0;
+			var accelPerSecond = 5;
+			var vx, vy;
+
+			// Bullet stuff
+			var Bullets = new Array();
+			var bulletSpeed = 50;
+			var bulletLength = 10;
+			var bulletWidth = 5;
+			
+			// Asteroid stuff
+			var Asteroids = new Array();
+			var AsteroidMinRad = 25;
+			var AsteroidMaxRad = 40;
+			var AsteroidMinPoints = 10;
+			var AsteroidMaxPoints = 15;
+			var AsteroidSpeed = 2;
+
+			var moving = MOVE_NONE;
+			
+			var KEYS = {
+				arrowDown: false,
+				arrowUp: false,
+				arrowLeft: false,
+				arrowRight: false
+			};
+	
+			function init()
+			{
+				canvas = $("#gamescreen")[0];
+				c = canvas.getContext('2d');
+				width = 800;
+				height = 600;
+				
+				px = width / 2;
+				py = height / 2;
+				
+				vx = vy = 0;
+				
+				$(window).keydown(keyDown);
+				$(window).keyup(keyUp);
+				
+				t = (new Date()).getTime();
+				setInterval( function() { generateAsteroidField(15) }, 1000);
+				setTimeout( function() { update(t); }, 1000 / 60);
+			}
+
+			function update(lastTime)
+			{
+				t = (new Date()).getTime();
+				dt = (t - lastTime) / 100; // time since the last frame in seconds
+				checkMovement(dt);
+				shipPhysics(dt);
+				updateAsteroids(dt);
+				updateBullets(dt);
+				checkCollisions();
+				draw();
+				setTimeout( function() { update(t); }, 1000 / 60);
+			}
+
+			function updateBullets(dt)
+			{
+				temp = new Array();
+				$.each(Bullets, function (index, value)
+				{
+					value.x += value.vx * dt;
+					value.y += value.vy * dt;
+					
+					if (BULLETLOOP === true)
+					{
+						if (value.x > width)
+							value.x = 0;
+						else if (value.x < 0)
+							value.x = width;
+						
+						if (value.y > height)
+							value.y = 0;
+						else if (value.y < 0)
+							value.y = height;
+					}
+					else
+					{
+						if (value.x < width && value.x > 0 && value.y > 0 && value.y < height)
+							temp.push(value);
+					}
+				});
+				if (BULLETLOOP === false)
+					Bullets = temp;
+			}
+			
+			function updateAsteroids(dt)
+			{
+				$.each(Asteroids, function(index, asteroid)
+				{
+					asteroid.x += Math.cos(asteroid.rot) * AsteroidSpeed * dt;
+					asteroid.y += Math.sin(asteroid.rot) * AsteroidSpeed * dt;
+					if (asteroid.x > width)
+						asteroid.x = 0;
+					else if (asteroid.x < 0)
+						asteroid.x = width;
+					
+					if (asteroid.y > height)
+						asteroid.y = 0;
+					else if (asteroid.y < 0)
+						asteroid.x = height;
+				});
+			}
+			
+			function shipPhysics(dt)
+			{
+				py -= vy * dt;
+				px -= vx * dt;
+
+				// Boundary loop checking
+				if (px < 0)
+					px = width;
+				else if (px > width)
+					px = 0;
+				if (py < 0)
+					py = height;
+				else if (py > height)
+					py = 0;
+			}
+			
+			function checkMovement(dt)
+			{
+				// Rotation checking
+				if (KEYS.arrowLeft && !KEYS.arrowRight)
+					playerRot -= rotSpeed * dt;
+				else if (!KEYS.arrowLeft && KEYS.arrowRight)
+					playerRot += rotSpeed * dt;
+				
+				if (KEYS.arrowUp && !KEYS.arrowDown)
+				{
+					vy -= Math.sin(playerRot - Math.PI / 2) * accelPerSecond * dt;
+					vx -= Math.cos(playerRot - Math.PI / 2) * accelPerSecond * dt;
+				}
+				else if (!KEYS.arrowUp && KEYS.arrowDown)
+				{
+					vy += Math.sin(playerRot - Math.PI / 2) * accelPerSecond * dt;
+					vx += Math.cos(playerRot - Math.PI / 2) * accelPerSecond * dt;
+				}
+			}
+			
+			function checkCollisions()
+			{
+				$.each(Asteroids, function(asteroidIndex, asteroid)
+				{
+					if (asteroid == null)
+						return true;
+					else
+					{
+						$.each(Bullets, function(bulletIndex, bullet)
+						{
+							if (bullet != null && asteroid != null)
+							{
+								if (Distance(bullet, asteroid) < asteroid.averageRad) // Collision occurred!
+								{
+									Score += Math.ceil( 100 / asteroid.averageRad );
+									splitAsteroid(asteroid);
+									Asteroids[asteroidIndex] = Bullets[bulletIndex] = null;
+									return true;
+								}
+								else
+									return true;
+							}
+						});
+					}
+				});
+				
+				// Remove all newly null objects
+				newAsteroids = new Array();
+				$.each(Asteroids, function(index, value)
+				{
+					if (value != null)
+						newAsteroids.push( value );
+				});
+				Asteroids = newAsteroids;
+				
+				newBullets = new Array();
+				$.each(Bullets, function(index, value)
+				{
+					if (value != null)
+						newBullets.push( value );
+				});
+				Bullets = newBullets;
+			}
+			
+			function Distance(obj1, obj2)
+			{
+				// both parameters must have x and y properties
+				// I should probably check that on my own, too
+				return Math.sqrt( Math.pow(Math.abs(obj2.x - obj1.x), 2) + Math.pow( Math.abs(obj2.y - obj1.y), 2 ) );
+			}
+			
+			function Fire()
+			{
+				tempBullet = {
+					x: ( px + Math.cos(playerRot - Math.PI / 2) * pHeight / 2 ),
+					y: ( py + Math.sin(playerRot - Math.PI / 2) * pHeight / 2 ),
+					vx: Math.cos(playerRot - Math.PI / 2) * bulletSpeed,
+					vy: Math.sin(playerRot - Math.PI / 2) * bulletSpeed,
+					rot: ( playerRot - Math.PI / 2)
+				};
+				Bullets.push( tempBullet );
+			}
+
+			function generateAsteroidField(num)
+			{
+				while (Asteroids.length < num)
+					newAsteroid();
+			}
+			
+			function splitAsteroid(asteroid)
+			{
+				newAsteroid(asteroid.x, asteroid.y, asteroid.points.length / 2, asteroid.points.length / 2 * 1.5, asteroid.averageRad / 2 * .5, asteroid.averageRad / 2 * 1.5);
+				newAsteroid(asteroid.x, asteroid.y, asteroid.points.length / 2, asteroid.points.length / 2 * 1.5, asteroid.averageRad / 2 * .5, asteroid.averageRad / 2 * 1.5);
+			}
+			
+			function newAsteroid(x, y, minPoints, maxPoints, minRad, maxRad)
+			{
+				// Check to see if any arguments were passed and fill them in if they weren't
+				x = (typeof x == 'undefined' ? Math.floor( Math.random() * width ) : x);
+				y = (typeof y == 'undefined' ? Math.floor( Math.random() * height ) : y);
+				minPoints = (typeof minPoints == 'undefined' ? AsteroidMinPoints : minPoints);
+				maxPoints = (typeof maxPoints == 'undefined' ? AsteroidMaxPoints : maxPoints);
+				minRad = (typeof minRad == 'undefined' ? AsteroidMinRad : minRad);
+				maxRad = (typeof maxRad == 'undefined' ? AsteroidMaxRad : maxRad);
+				
+				if (minPoints < 5)
+					return;
+					
+				
+				points = new Array();
+				averageRadius = 0;
+				numPoints = randNumInRange( minPoints, maxPoints );
+				for (i = 0; i < numPoints; i++)
+				{
+					rad = randNumInRange( minRad, maxRad );
+					averageRadius += rad;
+					tempPoint = {
+						x: Math.cos( Math.PI * 2 / numPoints * i) * rad,
+						y: Math.sin( Math.PI * 2 / numPoints * i) * rad
+					};
+					points.push( tempPoint );
+				}
+				averageRadius /= numPoints;
+				tempAsteroid = {
+					x: x,
+					y: y,
+					vx: 0,
+					vy: 0,
+					rot: Math.random() * Math.PI * 2,
+					points: points,
+					averageRad: averageRadius
+				};
+				Asteroids.push( tempAsteroid );
+			}
+			
+			function randNumInRange(min, max)
+			{
+				return Math.floor( Math.random() * ( max - min ) ) + min;
+			}
+			
+			// Drawing
+			function draw()
+			{
+				c.save();
+				c.fillStyle = "#000";
+				c.fillRect(0, 0, width, height);
+
+				drawBullets();
+				drawAsteroids();
+				drawPlayer();
+				drawHud();
+				c.restore();
+			}
+			
+			function drawHud()
+			{
+				c.fillStyle = "#fff";
+				c.fillText(Score + "pts", 10, 10);
+			}
+			
+			function drawAsteroids()
+			{
+				$.each(Asteroids, function(index, asteroid)
+				{
+					c.strokeStyle = "#fff";
+					c.fillStyle = "#000";
+					c.lineWidth = 1;
+					c.beginPath();
+					c.moveTo( asteroid.x + points[0].x, asteroid.y + points[0].y );
+					$.each(asteroid.points, function(index, point)
+					{
+						c.lineTo( asteroid.x + point.x, asteroid.y + point.y );
+					});
+					c.lineTo( asteroid.x + points[0].x, asteroid.y + points[0].y );
+					c.closePath();
+					c.fill();
+					c.stroke();
+					
+					// Inner dot
+					c.fillStyle = "#fff";
+					c.beginPath();
+					c.arc(asteroid.x, asteroid.y, 1, 0, Math.PI * 2, false);
+					c.closePath();
+					c.fill();
+				});
+			}
+			
+			function drawBullets()
+			{
+				$.each(Bullets, function(index, value)
+				{
+					c.strokeStyle = "#fff";
+					c.lineWidth = bulletWidth;
+					c.beginPath();
+					c.moveTo( value.x, value.y );
+					c.lineTo( value.x + Math.cos(value.rot) * bulletLength, value.y + Math.sin(value.rot) * bulletLength );
+					c.closePath();
+					c.stroke();
+				});
+			}
+
+			function drawPlayer()
+			{
+				c.save();
+				c.translate( px, py );
+				c.rotate( playerRot );
+				c.strokeStyle = "#aaa";
+				c.fillStyle = "#000";
+				c.lineWidth = 2;
+				c.lineCap = 'round';
+				c.beginPath();
+
+				c.moveTo( -pWidth / 2, pHeight / 2 );
+				c.lineTo( 0, -pHeight / 2);
+				c.lineTo( pWidth / 2, pHeight / 2);
+				c.lineTo( -pWidth / 2, pHeight / 2 );
+
+				c.closePath();
+				c.fill();
+				c.stroke();
+				
+				if (KEYS.arrowUp)
+				{
+					c.fillStyle = "#fff";
+					c.beginPath();
+					c.moveTo( -pWidth / 4, pHeight / 2);
+					c.lineTo( 0, pHeight / 2 + pHeight / 4 * Math.sin( Math.random() ) + 4);
+					c.lineTo( pWidth / 4, pHeight / 2);
+					c.closePath();
+					c.stroke();
+					c.fill();
+				}
+				
+				c.restore();
+			}
+			
+			// Input
+			function keyDown(e)
+			{
+				switch (e.keyCode)
+				{
+					case 37:
+						KEYS.arrowLeft = true;
+						break;
+					case 38:
+						KEYS.arrowUp = true;
+						break;
+					case 39:
+						KEYS.arrowRight = true;
+						break;
+					case 40:
+						//KEYS.arrowDown = true; // We don't want to go backwards
+						break;
+				}
+			}
+
+			function keyUp(e)
+			{
+				switch (e.keyCode)
+				{
+					case 32:
+						Fire();
+						break;
+					case 37:
+						KEYS.arrowLeft = false;
+						break;
+					case 38:
+						KEYS.arrowUp = false;
+						break;
+					case 39:
+						KEYS.arrowRight = false;
+						break;
+					case 40:
+						KEYS.arrowDown = false;
+						break;
+				}
+			}
+		</script>
+	</head>
+	<body onload="init()">
+		<canvas id="gamescreen" width="800" height="600">No canvas support, sorry!</canvas>
+	</body>
+</html>
